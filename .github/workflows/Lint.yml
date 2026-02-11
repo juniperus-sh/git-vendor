@@ -1,0 +1,94 @@
+name: Lint
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pre-commit:
+    name: Run pre-commit checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install pre-commit and hooks
+        run: |
+          uv tool install pre-commit
+          pre-commit install-hooks
+
+      - name: Run pre-commit on all files
+        run: pre-commit run -a
+
+  validate-pr-title:
+    name: Validate squash commit message
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Cache pre-commit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-
+
+      - name: Install pre-commit and hooks
+        run: |
+          uv tool install pre-commit
+          pre-commit install-hooks
+
+      - name: Create commit message from PR
+        run: |
+          cat > /tmp/commit-msg.txt << 'EOF'
+          ${{ github.event.pull_request.title }}
+
+          ${{ github.event.pull_request.body }}
+          EOF
+          echo "--- Commit message to validate ---"
+          cat /tmp/commit-msg.txt
+          echo "--- End of commit message ---"
+
+      - name: Find and validate with committed
+        run: |
+          # Find the committed binary in pre-commit cache
+          COMMITTED_BIN=$(find ~/.cache/pre-commit -type f -name committed | head -n 1)
+          if [ -z "$COMMITTED_BIN" ]; then
+            echo "Error: committed binary not found in pre-commit cache"
+            exit 1
+          fi
+          echo "Using committed binary: $COMMITTED_BIN"
+          "$COMMITTED_BIN" --config .committed.toml --commit-file /tmp/commit-msg.txt
