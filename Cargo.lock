@@ -193,6 +193,7 @@ name = "git-vendor"
 version = "0.0.0"
 dependencies = [
  "git-filter-tree",
+ "git2",
 ]
 
 [[package]]
