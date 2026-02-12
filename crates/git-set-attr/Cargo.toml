@@ -1,0 +1,17 @@
+[package]
+name = "git-set-attr"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "git-set-attr"
+required-features = ["cli"]
+
+[features]
+cli = ["dep:clap"]
+
+[dependencies]
+git2.workspace = true
+globset = "0.4"
+clap = { version = "4.5", features = ["derive"], optional = true }

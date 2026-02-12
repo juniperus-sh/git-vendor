@@ -19,6 +19,9 @@
       "include-component-in-tag": false,
       "release-as": "0.0.1"
     },
+    "crates/git-set-attr": {
+      "release-as": "0.0.1"
+    },
     "crates/git-filter-tree": {
       "release-as": "0.0.1"
     }
