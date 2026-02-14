@@ -3,6 +3,7 @@ resolver = "3"
 members = [".", "plumbing/*", "xtask"]
 
 [workspace.package]
+version = "0.0.0"
 edition = "2024"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -16,7 +17,7 @@ tempfile = "3"
 
 [package]
 name = "git-vendor"
-version = "0.0.0"
+version.workspace = true
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
