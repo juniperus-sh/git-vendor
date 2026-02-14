@@ -116,8 +116,8 @@ jobs:
           command: check
           command-arguments: ${{ matrix.checks }}
 
-  lint:
-    name: Lint
+  lints:
+    name: Lints
     if: always()
     needs: [pre-commit, validate-pr-title, cargo-deny]
     runs-on: ubuntu-latest
