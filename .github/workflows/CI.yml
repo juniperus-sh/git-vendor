@@ -99,8 +99,8 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-features
 
-  generate-artifacts:
-    name: Generate additional artifacts
+  man:
+    name: man-generation
     runs-on: ubuntu-24.04
     if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) }}
     steps:
