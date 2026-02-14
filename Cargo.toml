@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = [".", "crates/*"]
+members = [".", "plumbing/*"]
 
 [workspace.package]
 edition = "2024"
@@ -17,4 +17,5 @@ publish.workspace = true
 
 [dependencies]
 git2.workspace = true
-git-filter-tree = { path = "crates/git-filter-tree" }
+git-filter-tree = { path = "plumbing/git-filter-tree" }
+git-set-attr = { path = "plumbing/git-set-attr" }
