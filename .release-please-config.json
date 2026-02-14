@@ -24,6 +24,9 @@
     },
     "plumbing/git-filter-tree": {
       "release-as": "0.0.1"
+    },
+    "xtask": {
+      "component": "git-vendor"
     }
   },
   "plugins": [
