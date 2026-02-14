@@ -18,7 +18,6 @@
       "pull-request-title-pattern": "chore(release): v${version}",
       "include-component-in-tag": false,
       "release-as": "0.0.1",
-      "exclude-paths": ["xtask"],
       "extra-files": ["xtask/Cargo.toml"]
     },
     "plumbing/git-set-attr": {
