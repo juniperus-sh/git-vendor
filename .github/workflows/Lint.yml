@@ -2,13 +2,12 @@ name: Lint
 
 on:
   pull_request:
-    branches:
-      - main
     types:
-      - opened
-      - edited
+      - review_requested
+      - ready_for_review
       - reopened
       - synchronize
+      - edited
   workflow_dispatch:
 
 permissions:
@@ -19,7 +18,7 @@ jobs:
   pre-commit:
     name: Run pre-commit checks
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && (github.event.action == 'synchronize' || github.event.action == 'reopened' || github.event.action == 'ready_for_review')) }}
+    if: ${{ !github.event.pull_request.draft && github.event.action != 'edited' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -45,7 +44,7 @@ jobs:
   validate-pr-title:
     name: Validate squash commit message
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && (github.event.action == 'synchronize' || github.event.action == 'reopened' || github.event.action == 'ready_for_review') }}
+    if: ${{ github.event.pull_request.draft == false }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -98,7 +97,7 @@ jobs:
   cargo-deny:
     name: Check licenses with cargo-deny
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.draft == false && (github.event.action == 'synchronize' || github.event.action == 'reopened' || github.event.action == 'ready_for_review')) }}
+    if: ${{ !github.event.pull_request.draft && github.event.action != 'edited' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
