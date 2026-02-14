@@ -3,6 +3,7 @@ name: Lint
 on:
   pull_request:
     types:
+      - opened
       - review_requested
       - ready_for_review
       - reopened
@@ -95,9 +96,15 @@ jobs:
           "$COMMITTED_BIN" --config .committed.toml --commit-file /tmp/commit-msg.txt
 
   cargo-deny:
-    name: Check licenses with cargo-deny
+    name: Run cargo-deny
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft && github.event.action != 'edited' }}
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -105,4 +112,17 @@ jobs:
       - name: Run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          arguments: check -c .deny.toml
+          arguments: --all-features
+          command: check
+          command-arguments: ${{ matrix.checks }} -c .deny.toml
+
+  lints:
+    name: Lints
+    if: always()
+    needs: [pre-commit, validate-pr-title, cargo-deny]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          result="${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}"
+          echo "result: $result"
+          [[ "$result" == "success" ]] || exit 1

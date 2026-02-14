@@ -17,15 +17,10 @@
     ".": {
       "pull-request-title-pattern": "chore(release): v${version}",
       "include-component-in-tag": false,
-      "release-as": "0.0.1",
       "extra-files": ["xtask/Cargo.toml"]
     },
-    "plumbing/git-set-attr": {
-      "release-as": "0.0.1"
-    },
-    "plumbing/git-filter-tree": {
-      "release-as": "0.0.1"
-    }
+    "plumbing/git-set-attr": {},
+    "plumbing/git-filter-tree": {}
   },
   "plugins": [{ "type": "sentence-case" }],
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
