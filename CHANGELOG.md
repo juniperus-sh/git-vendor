@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.3](https://github.com/juniperus-sh/git-vendor/compare/v0.0.2...v0.0.3) (2026-02-15)
+
+
+### Features
+
+* Add `Vendor` trait implementation for `git2::Repository` ([#17](https://github.com/juniperus-sh/git-vendor/issues/17)) ([33cb4eb](https://github.com/juniperus-sh/git-vendor/commit/33cb4eb21fdf6cf822b5186613936872979243e6))
+* Add `Vendor` trait to `git-vendor` ([3a4dc2b](https://github.com/juniperus-sh/git-vendor/commit/3a4dc2bc143063aff4de9b01c70b589cfbf4068e))
+
 ## [0.0.2](https://github.com/juniperus-sh/git-vendor/compare/v0.0.1...v0.0.2) (2026-02-14)
 
 
