@@ -1,6 +1,6 @@
 //! Integration tests for the `Vendor` trait methods on `Repository`.
 
-use git_vendor::Vendor;
+use git_vendor::{Vendor, VendorMergeOpts};
 use git2::Repository;
 use std::{fs, io::Write, path::Path, sync::Mutex};
 use tempfile::TempDir;
@@ -221,7 +221,7 @@ fn fetch_errors_with_no_deps() {
     let (repo, dir) = setup_repo();
     std::env::set_current_dir(dir.path()).unwrap();
 
-    let err = repo.vendor_fetch(None).unwrap_err();
+    let err = repo.vendor_fetch(None, None).unwrap_err();
     assert!(err.message().contains("No vendored dependencies to fetch"));
 }
 
@@ -235,7 +235,7 @@ fn merge_errors_with_no_deps() {
     let (repo, dir) = setup_repo();
     std::env::set_current_dir(dir.path()).unwrap();
 
-    let err = Vendor::vendor_merge(&repo, None).unwrap_err();
+    let err = Vendor::vendor_merge(&repo, None, &Default::default(), None).unwrap_err();
     assert!(err.message().contains("No vendored dependencies to merge"));
 }
 
@@ -254,6 +254,6 @@ fn bare_repo_rejects_all_operations() {
     );
     assert!(repo.untrack_pattern("*.txt").is_err());
     assert!(repo.vendor_status(None).is_err());
-    assert!(repo.vendor_fetch(None).is_err());
-    assert!(Vendor::vendor_merge(&repo, None).is_err());
+    assert!(repo.vendor_fetch(None, None).is_err());
+    assert!(Vendor::vendor_merge(&repo, None, &VendorMergeOpts::default(), None).is_err());
 }

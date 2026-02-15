@@ -10,12 +10,30 @@
 
 use git_filter_tree::FilterTree;
 use git_set_attr::SetAttr;
-use git2::{Error, Repository};
+use git2::build::CheckoutBuilder;
+use git2::{Error, FetchOptions, MergeOptions, Oid, Repository};
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
 };
+
+/// High-level options for [`Vendor::vendor_merge`], mirroring `git merge` flags.
+///
+/// These control the commit/staging behavior of the merge. The low-level
+/// tree-merge algorithm is configured separately via [`MergeOptions`].
+#[derive(Debug, Default)]
+pub struct VendorMergeOpts {
+    /// Perform the merge and update the working tree and index, but do not
+    /// create a commit.  `MERGE_HEAD` is recorded so that a subsequent
+    /// `git commit` produces a merge commit (`--no-commit`).
+    pub no_commit: bool,
+    /// Like `no_commit`, but also omits `MERGE_HEAD` so the eventual commit
+    /// is an ordinary (non-merge) commit (`--squash`).
+    pub squash: bool,
+    /// Override the default merge commit message (`-m`).
+    pub message: Option<String>,
+}
 
 /// A vendored dependency parsed from `.gitattributes`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,10 +77,23 @@ pub trait Vendor {
     /// Fetch the latest content from all relevant vendor sources.
     ///
     /// All vendor refs are stored under `/refs/vendor/`.
-    fn vendor_fetch(&self, maybe_pattern: Option<&str>) -> Result<(), Error>;
+    fn vendor_fetch(
+        &self,
+        maybe_pattern: Option<&str>,
+        fetch_opts: Option<&mut FetchOptions<'_>>,
+    ) -> Result<(), Error>;
 
     /// Merge the latest content from all relevant vendor sources.
-    fn vendor_merge(&self, maybe_pattern: Option<&str>) -> Result<(), Error>;
+    ///
+    /// Behaves like `git merge`: updates the working tree and index, optionally
+    /// creates a merge commit, and records `MERGE_HEAD`/`MERGE_MSG` when
+    /// appropriate.
+    fn vendor_merge(
+        &self,
+        maybe_pattern: Option<&str>,
+        opts: &VendorMergeOpts,
+        merge_opts: Option<&MergeOptions>,
+    ) -> Result<(), Error>;
 }
 
 impl Vendor for Repository {
@@ -141,7 +172,11 @@ impl Vendor for Repository {
         Ok(())
     }
 
-    fn vendor_fetch(&self, maybe_pattern: Option<&str>) -> Result<(), Error> {
+    fn vendor_fetch(
+        &self,
+        maybe_pattern: Option<&str>,
+        mut fetch_opts: Option<&mut FetchOptions<'_>>,
+    ) -> Result<(), Error> {
         require_non_bare(self)?;
 
         let path = find_gitattributes(self)?;
@@ -166,7 +201,7 @@ impl Vendor for Repository {
                 Some(branch) => format!("+refs/heads/{branch}:{ref_target}"),
                 None => format!("+HEAD:{ref_target}"),
             };
-            remote.fetch(&[&refspec], None, None)?;
+            remote.fetch(&[&refspec], fetch_opts.as_mut().map(|o| &mut **o), None)?;
 
             println!("  Fetched to {ref_target}");
         }
@@ -174,7 +209,12 @@ impl Vendor for Repository {
         Ok(())
     }
 
-    fn vendor_merge(&self, maybe_pattern: Option<&str>) -> Result<(), Error> {
+    fn vendor_merge(
+        &self,
+        maybe_pattern: Option<&str>,
+        opts: &VendorMergeOpts,
+        merge_opts: Option<&MergeOptions>,
+    ) -> Result<(), Error> {
         require_non_bare(self)?;
 
         let path = find_gitattributes(self)?;
@@ -185,7 +225,15 @@ impl Vendor for Repository {
             return Err(Error::from_str("No vendored dependencies to merge"));
         }
 
-        for dep in deps {
+        let skip_commit = opts.no_commit || opts.squash;
+        if skip_commit && deps.len() > 1 {
+            return Err(Error::from_str(
+                "--no-commit and --squash require a single dependency; \
+                 specify a pattern to select one",
+            ));
+        }
+
+        for dep in &deps {
             let ref_name = vendor_ref_name(&dep.name);
 
             println!("Merging {} ({})", dep.name, dep.pattern);
@@ -208,31 +256,73 @@ impl Vendor for Repository {
             let head_commit = head.peel_to_commit()?;
             let head_tree = head_commit.tree()?;
 
-            let mut index = self.merge_trees(&head_tree, &head_tree, &filtered_tree, None)?;
+            let mut index = self.merge_trees(&head_tree, &head_tree, &filtered_tree, merge_opts)?;
+
+            let default_message = format!("Merge vendored dependency: {}", dep.name);
+            let message = opts.message.as_deref().unwrap_or(&default_message);
 
             if index.has_conflicts() {
+                // Write the conflicted index to the repository so the user can
+                // resolve in the working tree.
+                let mut repo_index = self.index()?;
+                repo_index.read_tree(&head_tree)?;
+                for conflict in index.conflicts()? {
+                    let conflict = conflict?;
+                    if let Some(entry) = &conflict.our {
+                        repo_index.add(entry)?;
+                    }
+                    if let Some(entry) = &conflict.their {
+                        repo_index.add(entry)?;
+                    }
+                }
+                repo_index.write()?;
+
+                let mut co = CheckoutBuilder::new();
+                co.allow_conflicts(true).conflict_style_merge(true);
+                self.checkout_index(Some(&mut repo_index), Some(&mut co))?;
+
+                if !opts.squash {
+                    set_merge_head(self, vendor_oid)?;
+                }
+                set_merge_msg(self, message)?;
+
                 return Err(Error::from_str(&format!(
-                    "Conflicts detected while merging {}",
+                    "Conflicts detected while merging {}. \
+                     Resolve them and commit the result.",
                     dep.name
                 )));
             }
 
+            // Clean merge — write the tree, update index and working directory.
             let merged_oid = index.write_tree_to(self)?;
             let merged_tree = self.find_tree(merged_oid)?;
 
-            let signature = self.signature()?;
-            let message = format!("Merge vendored dependency: {}", dep.name);
+            let mut repo_index = self.index()?;
+            repo_index.read_tree(&merged_tree)?;
+            repo_index.write()?;
 
-            self.commit(
-                Some("HEAD"),
-                &signature,
-                &signature,
-                &message,
-                &merged_tree,
-                &[&head_commit, &vendor_commit],
-            )?;
+            let mut co = CheckoutBuilder::new();
+            co.force();
+            self.checkout_tree(merged_tree.as_object(), Some(&mut co))?;
 
-            println!("  Merged successfully");
+            if skip_commit {
+                if !opts.squash {
+                    set_merge_head(self, vendor_oid)?;
+                }
+                set_merge_msg(self, message)?;
+                println!("  Merged (not committed)");
+            } else {
+                let signature = self.signature()?;
+                self.commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    message,
+                    &merged_tree,
+                    &[&head_commit, &vendor_commit],
+                )?;
+                println!("  Merged successfully");
+            }
         }
 
         Ok(())
@@ -241,6 +331,26 @@ impl Vendor for Repository {
 
 // ---------------------------------------------------------------------------
 // Helpers
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Merge state helpers
+// ---------------------------------------------------------------------------
+
+/// Write `MERGE_HEAD` so that a subsequent `git commit` creates a merge commit.
+fn set_merge_head(repo: &Repository, oid: Oid) -> Result<(), Error> {
+    let path = repo.path().join("MERGE_HEAD");
+    fs::write(&path, format!("{oid}\n")).map_err(|e| Error::from_str(&e.to_string()))
+}
+
+/// Write `MERGE_MSG` so that `git commit` picks up the message.
+fn set_merge_msg(repo: &Repository, msg: &str) -> Result<(), Error> {
+    let path = repo.path().join("MERGE_MSG");
+    fs::write(&path, format!("{msg}\n")).map_err(|e| Error::from_str(&e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// Repository helpers
 // ---------------------------------------------------------------------------
 
 fn require_non_bare(repo: &Repository) -> Result<(), Error> {
