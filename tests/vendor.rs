@@ -1,6 +1,6 @@
 //! Integration tests for the `Vendor` trait methods on `Repository`.
 
-use git_vendor::{Vendor, VendorMergeOpts};
+use git_vendor::Vendor;
 use git2::{Oid, Repository};
 use std::{fs, io::Write, path::Path, sync::Mutex};
 use tempfile::TempDir;
@@ -110,9 +110,9 @@ fn track_pattern_writes_gitattributes() {
     let content = fs::read_to_string(dir.path().join(".gitattributes")).unwrap();
     assert!(content.contains("*.txt"));
     assert!(content.contains("vendored"));
-    assert!(content.contains("name=owner/repo"));
     assert!(content.contains("url=https://github.com/owner/repo.git"));
     assert!(content.contains("branch=main"));
+    assert!(!content.contains("prefix="));
 }
 
 #[test]
@@ -126,43 +126,8 @@ fn track_pattern_omits_branch_when_none() {
 
     let content = fs::read_to_string(dir.path().join(".gitattributes")).unwrap();
     assert!(content.contains("vendored"));
-    assert!(content.contains("name=owner/repo"));
     assert!(content.contains("url=https://github.com/owner/repo.git"));
     assert!(!content.contains("branch"));
-}
-
-#[test]
-fn track_pattern_local_path_requires_name() {
-    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let (repo, dir) = setup_repo();
-    std::env::set_current_dir(dir.path()).unwrap();
-
-    assert!(
-        repo.track_pattern("*.txt", "/local/path", Some("main"), None)
-            .is_err()
-    );
-    assert!(
-        repo.track_pattern("*.txt", "/local/path", Some("main"), Some("my-dep"))
-            .is_ok()
-    );
-}
-
-#[test]
-fn track_pattern_explicit_name_overrides_derived() {
-    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let (repo, dir) = setup_repo();
-    std::env::set_current_dir(dir.path()).unwrap();
-
-    repo.track_pattern(
-        "*.txt",
-        "https://github.com/owner/repo.git",
-        Some("main"),
-        Some("custom-name"),
-    )
-    .unwrap();
-
-    let content = fs::read_to_string(dir.path().join(".gitattributes")).unwrap();
-    assert!(content.contains("name=custom-name"));
 }
 
 #[test]
@@ -203,12 +168,10 @@ fn untrack_pattern_removes_vendor_lines() {
 
     let ga = dir.path().join(".gitattributes");
     let content = fs::read_to_string(&ga).unwrap();
-    assert!(content.contains("name=owner/repo"));
 
     repo.untrack_pattern("*.txt").unwrap();
 
     let content = fs::read_to_string(&ga).unwrap();
-    assert!(!content.contains("name=owner/repo"));
     assert!(!content.contains("url="));
 }
 
@@ -242,7 +205,7 @@ fn status_ok_with_tracked_dep() {
 
     write_gitattributes(
         dir.path(),
-        "*.txt vendored name=o/r url=https://example.com/o/r.git branch=main\n",
+        "*.txt vendored url=https://example.com/o/r.git branch=main\n",
     );
 
     assert!(repo.vendor_status(None).is_ok());
@@ -256,7 +219,7 @@ fn status_ok_with_tracked_dep_no_branch() {
 
     write_gitattributes(
         dir.path(),
-        "*.txt vendored name=o/r url=https://example.com/o/r.git\n",
+        "*.txt vendored url=https://example.com/o/r.git\n",
     );
 
     assert!(repo.vendor_status(None).is_ok());
@@ -286,7 +249,7 @@ fn merge_errors_with_no_deps() {
     let (repo, dir) = setup_repo();
     std::env::set_current_dir(dir.path()).unwrap();
 
-    let err = Vendor::vendor_merge(&repo, None, &Default::default(), None).unwrap_err();
+    let err = Vendor::vendor_merge(&repo, None, Some(&Default::default())).unwrap_err();
     assert!(err.message().contains("No vendored dependencies to merge"));
 }
 
@@ -306,7 +269,7 @@ fn bare_repo_rejects_all_operations() {
     assert!(repo.untrack_pattern("*.txt").is_err());
     assert!(repo.vendor_status(None).is_err());
     assert!(repo.vendor_fetch(None, None).is_err());
-    assert!(Vendor::vendor_merge(&repo, None, &VendorMergeOpts::default(), None).is_err());
+    assert!(Vendor::vendor_merge(&repo, None, Some(&Default::default())).is_err());
 }
 
 // ---------------------------------------------------------------------------
@@ -329,7 +292,7 @@ fn merge_preserves_non_vendor_files() {
     write_gitattributes(
         dir.path(),
         &format!(
-            "*.txt vendored name=test/upstream url={} branch=main\n",
+            "*.txt vendored url={} branch=main\n",
             upstream_dir.path().display(),
         ),
     );
@@ -344,8 +307,7 @@ fn merge_preserves_non_vendor_files() {
 
     // 3. Fetch + merge the vendor dependency.
     repo.vendor_fetch(None, None).unwrap();
-    repo.vendor_merge(None, &VendorMergeOpts::default(), None)
-        .unwrap();
+    repo.vendor_merge(None, Some(&Default::default())).unwrap();
 
     // 4. Non-vendor files must still be present in HEAD and working tree.
     let head_tree = repo.head().unwrap().peel_to_tree().unwrap();
@@ -389,7 +351,7 @@ fn merge_rejects_dirty_index() {
     write_gitattributes(
         dir.path(),
         &format!(
-            "*.txt vendored name=test/upstream url={} branch=main\n",
+            "*.txt vendored url={} branch=main\n",
             upstream_dir.path().display(),
         ),
     );
@@ -408,7 +370,7 @@ fn merge_rejects_dirty_index() {
     }
 
     let err = repo
-        .vendor_merge(None, &VendorMergeOpts::default(), None)
+        .vendor_merge(None, Some(&Default::default()))
         .unwrap_err();
     assert!(
         err.message().contains("uncommitted changes"),
@@ -444,15 +406,14 @@ fn merge_vendors_subdirectory_from_upstream() {
     write_gitattributes(
         dir.path(),
         &format!(
-            "pyo3/** vendored name=test/upstream url={} branch=main\n",
+            "pyo3/** vendored url={} branch=main\n",
             upstream_dir.path().display(),
         ),
     );
     commit_all(&repo, "initial");
 
     repo.vendor_fetch(None, None).unwrap();
-    repo.vendor_merge(None, &VendorMergeOpts::default(), None)
-        .unwrap();
+    repo.vendor_merge(None, Some(&Default::default())).unwrap();
 
     let head_tree = repo.head().unwrap().peel_to_tree().unwrap();
 
@@ -517,15 +478,14 @@ fn merge_vendors_subdirectory_trailing_slash_pattern() {
     write_gitattributes(
         dir.path(),
         &format!(
-            "pyo3/ vendored name=test/upstream url={} branch=main\n",
+            "pyo3/ vendored url={} branch=main\n",
             upstream_dir.path().display(),
         ),
     );
     commit_all(&repo, "initial");
 
     repo.vendor_fetch(None, None).unwrap();
-    repo.vendor_merge(None, &VendorMergeOpts::default(), None)
-        .unwrap();
+    repo.vendor_merge(None, Some(&Default::default())).unwrap();
 
     let head_tree = repo.head().unwrap().peel_to_tree().unwrap();
 

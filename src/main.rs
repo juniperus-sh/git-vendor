@@ -2,7 +2,7 @@ mod cli;
 
 use clap::Parser;
 use cli::{Cli, Commands};
-use git_vendor::{Vendor, VendorMergeOpts};
+use git_vendor::Vendor;
 use git2 as git;
 use std::process;
 
@@ -24,12 +24,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             pattern,
             url,
             branch,
-            name,
+            prefix,
         } => {
-            repo.track_pattern(&pattern, &url, branch.as_deref(), name.as_deref())?;
+            repo.track_pattern(&pattern, &url, branch.as_deref(), prefix.as_deref())?;
             println!("Tracked pattern: {}", pattern);
-            if let Some(ref n) = name {
-                println!("  name: {}", n);
+            if let Some(ref p) = prefix {
+                println!("  prefix: {}", p);
             }
             println!("  url: {}", url);
             if let Some(ref b) = branch {
@@ -50,18 +50,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             repo.vendor_fetch(pattern.as_deref(), None)?;
         }
 
-        Commands::Merge {
-            pattern,
-            no_commit,
-            squash,
-            message,
-        } => {
-            let opts = VendorMergeOpts {
-                no_commit,
-                squash,
-                message,
-            };
-            repo.vendor_merge(pattern.as_deref(), &opts, None)?;
+        Commands::Merge { pattern, .. } => {
+            repo.vendor_merge(pattern.as_deref(), None)?;
         }
     }
 

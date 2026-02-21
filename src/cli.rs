@@ -22,9 +22,9 @@ pub enum Commands {
         #[arg(short, long)]
         branch: Option<String>,
 
-        /// Explicit dependency name (defaults to owner/repo from URL)
+        /// Prefix to store vendored files under
         #[arg(short, long)]
-        name: Option<String>,
+        prefix: Option<String>,
     },
 
     /// Untrack a vendored dependency pattern
